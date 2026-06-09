@@ -1,0 +1,25 @@
+# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Archivos compilados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Base de datos local de Django
+db.sqlite3
+db.sqlite3-journal
+
+# Archivos de la nube / locales de configuración
+*.env
+.env
+local_settings.py
+
+# Modelos de Machine Learning (Generalmente pesados para GitHub)
+*.pt
+*.pth
+
+# Archivos del sistema operativo (macOS)
+.DS_Store
