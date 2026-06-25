@@ -23,3 +23,6 @@ local_settings.py
 
 # Archivos del sistema operativo (macOS)
 .DS_Store
+
+#Archivos multimedia
+media/

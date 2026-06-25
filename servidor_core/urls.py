@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
 from api_artropodos import views
 
 urlpatterns = [
@@ -9,3 +11,6 @@ urlpatterns = [
     # Ruta para obtener el historial de avistamientos
     path('api/historial/', views.historial_avistamientos, name='historial_avistamientos'),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
