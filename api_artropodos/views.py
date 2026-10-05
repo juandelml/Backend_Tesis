@@ -153,12 +153,29 @@ def clasificar_artropodo(request):
             lat_float = float(lat) if lat else None
             lon_float = float(lon) if lon else None
 
-            # 3. Crear y guardar el documento en MongoDB usando MongoEngine
+            # 3. Obtener datos del usuario (autenticado por Token o enviado como fallback)
+            usuario_id = None
+            usuario_username = "Anónimo"
+            usuario_institucion = ""
+
+            if request.user and request.user.is_authenticated:
+                usuario_id = str(request.user.id)
+                usuario_username = request.user.username
+                usuario_institucion = request.user.institucion or ""
+            elif request.POST.get('usuario_username'):
+                usuario_username = request.POST.get('usuario_username')
+                usuario_institucion = request.POST.get('usuario_institucion', '')
+                usuario_id = request.POST.get('usuario_id')
+
+            # 4. Crear y guardar el documento en MongoDB usando MongoEngine
             historial = HistorialAvistamiento(
                 imagen_ruta=ruta_imagen,
                 latitud=lat_float,
                 longitud=lon_float,
-                detecciones=detecciones
+                detecciones=detecciones,
+                usuario_id=usuario_id,
+                usuario_username=usuario_username,
+                usuario_institucion=usuario_institucion
             )
             historial.save()
         except Exception as mongo_e:
@@ -170,7 +187,8 @@ def clasificar_artropodo(request):
             "exito": True,
             "tiempo_servidor_ms": tiempo_total_servidor,
             "detecciones": detecciones,
-            "imagen_pintada": img_base64 # Enviamos la imagen en texto con todas las detecciones
+            "imagen_pintada": img_base64, # Enviamos la imagen en texto con todas las detecciones
+            "usuario": usuario_username
         }, status=status.HTTP_200_OK)
 
     except Exception as e:
@@ -200,10 +218,58 @@ def historial_avistamientos(request):
                 "fecha_hora": registro.fecha_hora.isoformat() if registro.fecha_hora else None,
                 "latitud": registro.latitud,
                 "longitud": registro.longitud,
-                "detecciones": registro.detecciones
+                "detecciones": registro.detecciones,
+                "usuario": getattr(registro, 'usuario_username', 'Anónimo') or 'Anónimo',
+                "institucion": getattr(registro, 'usuario_institucion', '') or '',
+                "usuario_id": getattr(registro, 'usuario_id', None)
             })
             
         return Response(datos_historial, status=status.HTTP_200_OK)
     
     except Exception as e:
         return Response({"error": f"Error al obtener historial: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ==========================================
+# 4. ENDPOINT PARA ELIMINAR AVISTAMIENTO
+# ==========================================
+@api_view(['DELETE'])
+def eliminar_avistamiento(request, id_avistamiento):
+    """
+    Elimina un avistamiento de MongoDB.
+    Los administradores pueden borrar cualquier avistamiento.
+    Los observadores solo pueden borrar sus propios avistamientos.
+    """
+    try:
+        from bson import ObjectId
+        try:
+            obj_id = ObjectId(id_avistamiento)
+        except Exception:
+            return Response({"error": "ID de avistamiento inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        registro = HistorialAvistamiento.objects(id=obj_id).first()
+        if not registro:
+            return Response({"error": "Avistamiento no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Si el usuario está autenticado, verificamos permisos
+        if request.user and request.user.is_authenticated:
+            es_admin = getattr(request.user, 'rol', '') == 'admin' or request.user.is_staff or request.user.is_superuser
+            es_propietario = getattr(registro, 'usuario_id', None) == str(request.user.id)
+            if not (es_admin or es_propietario):
+                return Response({"error": "No tienes permiso para eliminar este avistamiento."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Borrar archivo local si existe
+        if registro.imagen_ruta:
+            ruta_relativa = registro.imagen_ruta.replace(settings.MEDIA_URL, '', 1)
+            ruta_archivo = os.path.join(settings.MEDIA_ROOT, ruta_relativa)
+            if os.path.exists(ruta_archivo):
+                try:
+                    os.remove(ruta_archivo)
+                except Exception:
+                    pass
+
+        registro.delete()
+        return Response({"exito": True, "mensaje": "Avistamiento eliminado exitosamente."}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": f"Error al eliminar avistamiento: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

@@ -39,9 +39,18 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Necesarias
     'rest_framework',
+    'rest_framework.authtoken',
     'corsheaders',
     'api_artropodos',
 ]
+
+AUTH_USER_MODEL = 'api_artropodos.Usuario'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
