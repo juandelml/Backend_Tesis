@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
+from django.utils import timezone
 from .models import HistorialAvistamiento
 
 # ==========================================
@@ -128,7 +129,11 @@ def clasificar_artropodo(request):
             
             # 5. Escribimos el texto en negro sobre el fondo verde
             cv2.putText(img_pintada, etiqueta, (x1 + 5, max(15, y1 - 5)), fuente, escala_fuente, color_texto, grosor_fuente)
-        
+
+        # Si tras procesar las cajas no hay detecciones válidas, terminar sin guardar nada
+        if len(detecciones) == 0:
+            return Response({"exito": False, "mensaje": "No se detectó ningún artrópodo en la imagen."}, status=status.HTTP_200_OK)
+
         # Convertimos la imagen ya con todas las cajas pintadas a Base64
         _, buffer = cv2.imencode('.jpg', img_pintada)
         img_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -183,12 +188,27 @@ def clasificar_artropodo(request):
             # Dependiendo de tu lógica de negocio, puedes decidir fallar o continuar si MongoDB falla.
             # Aquí continuamos con la respuesta para no afectar al usuario de la app.
 
+        url_absoluta = request.build_absolute_uri(ruta_imagen) if 'ruta_imagen' in locals() and ruta_imagen else None
+        id_historial = str(historial.id) if 'historial' in locals() and hasattr(historial, 'id') else None
+        fecha_historial = (
+            historial.fecha_hora.isoformat()
+            if 'historial' in locals() and hasattr(historial, 'fecha_hora') and historial.fecha_hora
+            else timezone.now().isoformat()
+        )
+
         return Response({
             "exito": True,
             "tiempo_servidor_ms": tiempo_total_servidor,
+            "id": id_historial,
+            "imagen_url": url_absoluta,
+            "fecha_hora": fecha_historial,
+            "latitud": lat_float if 'lat_float' in locals() else None,
+            "longitud": lon_float if 'lon_float' in locals() else None,
             "detecciones": detecciones,
             "imagen_pintada": img_base64, # Enviamos la imagen en texto con todas las detecciones
-            "usuario": usuario_username
+            "usuario": usuario_username if 'usuario_username' in locals() and usuario_username else 'Anónimo',
+            "institucion": usuario_institucion if 'usuario_institucion' in locals() and usuario_institucion else '',
+            "usuario_id": usuario_id if 'usuario_id' in locals() else None
         }, status=status.HTTP_200_OK)
 
     except Exception as e:
@@ -202,10 +222,20 @@ def historial_avistamientos(request):
     """
     Retorna el historial de todos los avistamientos guardados en MongoDB,
     ordenados del más reciente al más antiguo.
+    Permite filtrar con ?solo_mios=true si el usuario está autenticado.
     """
     try:
-        # Recuperamos todos los registros (mongoengine ya los ordena por '-fecha_hora' según models.py)
-        registros = HistorialAvistamiento.objects.all()
+        solo_mios = request.GET.get('solo_mios', 'false').lower() in ['true', '1']
+        
+        if solo_mios and request.user and request.user.is_authenticated:
+            from mongoengine.queryset.visitor import Q
+            user_id = str(request.user.id)
+            registros = HistorialAvistamiento.objects(
+                Q(usuario_id=user_id) | Q(usuario_username=request.user.username)
+            )
+        else:
+            # Recuperamos todos los registros (mongoengine ya los ordena por '-fecha_hora' según models.py)
+            registros = HistorialAvistamiento.objects.all()
         
         datos_historial = []
         for registro in registros:
